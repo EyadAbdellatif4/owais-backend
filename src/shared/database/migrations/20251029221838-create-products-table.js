@@ -45,28 +45,18 @@ module.exports = {
     });
 
     // Add CHECK constraint to prevent negative availableUnits
-    await queryInterface.addConstraint('products', {
-      fields: ['availableUnits'],
-      type: 'check',
-      name: 'products_available_units_non_negative',
-      where: {
-        availableUnits: {
-          [Sequelize.Op.gte]: 0,
-        },
-      },
-    });
+    await queryInterface.sequelize.query(`
+      ALTER TABLE products
+      ADD CONSTRAINT products_available_units_non_negative
+      CHECK ("availableUnits" >= 0);
+    `);
 
     // Add CHECK constraint to ensure price is positive
-    await queryInterface.addConstraint('products', {
-      fields: ['price'],
-      type: 'check',
-      name: 'products_price_positive',
-      where: {
-        price: {
-          [Sequelize.Op.gt]: 0,
-        },
-      },
-    });
+    await queryInterface.sequelize.query(`
+      ALTER TABLE products
+      ADD CONSTRAINT products_price_positive
+      CHECK (price > 0);
+    `);
 
     // Create index on merchant_id for better query performance
     await queryInterface.addIndex('products', ['merchant_id'], {

@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: owais-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_DATABASE:-owais_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - owais-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: owais-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-} --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - owais-network
+
+  # NestJS Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: owais-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_DATABASE: ${DB_DATABASE:-owais_db}
+      NODE_ENV: ${NODE_ENV:-development}
+      
+      # Server
+      PORT: ${PORT:-3000}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-random-secret-key}
+      
+      # Redis
+      USE_REDIS: ${USE_REDIS:-true}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_TTL: ${REDIS_TTL:-300}
+      CACHE_MAX: ${CACHE_MAX:-100}
+      
+      # Stripe (Optional - for gateway payments)
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_API_VERSION: ${STRIPE_API_VERSION:-2024-11-20.acacia}
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./nest-cli.json:/app/nest-cli.json
+      # Exclude node_modules from volume mount
+      - /app/node_modules
+    networks:
+      - owais-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  owais-network:
+    driver: bridge
+
